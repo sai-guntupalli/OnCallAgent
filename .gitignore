@@ -1,0 +1,31 @@
+# Python Caches and Virtual Environments
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.pyo
+*.pyd
+.python-version
+
+# Environment Variables
+.env
+.env.example
+
+# Data and Databases
+data/*.duckdb
+data/*.duckdb.wal
+*.db
+
+# Logs
+*.log
+
+# IDE and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Tool Specific
+.uv/
+test_agent_core.py
+test_langgraph_minimal.py
+server*.log

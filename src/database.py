@@ -38,9 +38,16 @@ class Database:
                 description VARCHAR,
                 status VARCHAR,
                 priority VARCHAR,
-                queue VARCHAR
+                queue VARCHAR,
+                resolution_guide VARCHAR
             )
         """)
+        
+        # Ensure column exists if table was already created
+        try:
+            self.con.execute("ALTER TABLE mock_tickets ADD COLUMN resolution_guide VARCHAR")
+        except:
+            pass
 
     def log_action(self, action_type: str, details: Dict[str, Any], status: str = "success"):
         """Log an agent action to the audit table."""
@@ -55,14 +62,14 @@ class Database:
         except Exception as e:
             print(f"Failed to write to audit log: {e}")
 
-    def create_ticket(self, title: str, description: str, priority: str = "Medium") -> str:
+    def create_ticket(self, title: str, description: str, priority: str = "Medium", resolution_guide: Optional[str] = None) -> str:
         """Create a ticket in the mock system."""
         ticket_id = f"TICKET-{str(uuid.uuid4())[:8].upper()}"
         timestamp = datetime.now()
         
         self.con.execute("""
-            INSERT INTO mock_tickets VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (ticket_id, timestamp, title, description, "OPEN", priority, config.ticketing.default_queue))
+            INSERT INTO mock_tickets VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (ticket_id, timestamp, title, description, "OPEN", priority, config.ticketing.default_queue, resolution_guide))
         
         return ticket_id
         

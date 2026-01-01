@@ -1,10 +1,19 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
+import json
+import textwrap
+
 from .agent.core import run_agent
 from .database import db
 
 app = FastAPI(title="OnCall Agent API", version="1.0")
+
+@app.on_event("startup")
+async def startup_event():
+    from .agent.core import config
+    print(f"🚀 OnCall Agent API Starting...")
+    print(f"🤖 Active Model: {config.agent.model}")
 
 class IncidentRequest(BaseModel):
     source_system: str  # e.g. "airflow", "databricks"
@@ -22,17 +31,14 @@ async def analyze_incident(incident: IncidentRequest, background_tasks: Backgrou
     """
     try:
         # Construct the user prompt from the structured request
-        prompt = f"""
-        Incident Report from {incident.source_system}:
-        ID: {incident.incident_id}
-        Title: {incident.title}
-        Description: {incident.description}
-        
-        Metadata: {incident.metadata}
-        
-        Logs:
-        {incident.logs or "No logs provided. Please fetch via API."}
-        """
+        prompt = textwrap.dedent(f"""
+            Incident Report from {incident.source_system}:
+            ID: {incident.incident_id}
+            Title: {incident.title}
+            Description: {incident.description}
+            Logs: {incident.logs or "No logs provided. Please fetch via API."}
+            Metadata: {json.dumps(incident.metadata, indent=2)}
+        """).strip()
         
         # Log reception
         db.log_action("API_REQUEST_RECEIVED", incident.model_dump())

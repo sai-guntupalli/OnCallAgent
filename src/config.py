@@ -3,6 +3,10 @@ import yaml
 from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import load_dotenv
+
+# Explicitly load .env into os.environ, allowing it to override existing session variables
+load_dotenv(override=True)
 
 class AgentConfig(BaseModel):
     name: str = "DataEngOnCall"
@@ -21,12 +25,12 @@ class ToolConfig(BaseModel):
     timeout: int = 30
 
 class AppConfig(BaseSettings):
-    agent: AgentConfig
-    paths: PathsConfig
-    ticketing: TicketingConfig
-    tools: Dict[str, ToolConfig]
+    agent: AgentConfig = Field(default_factory=AgentConfig)
+    paths: PathsConfig = Field(default_factory=PathsConfig)
+    ticketing: TicketingConfig = Field(default_factory=TicketingConfig)
+    tools: Dict[str, ToolConfig] = Field(default_factory=dict)
     
-    # Environment variable overrides for secrets
+    # Environment variable overrides
     airflow_url: Optional[str] = None
     airflow_username: Optional[str] = None
     airflow_password: Optional[str] = None
@@ -38,43 +42,41 @@ class AppConfig(BaseSettings):
     snowflake_user: Optional[str] = None
     snowflake_password: Optional[str] = None
     
-    # LLM Dynamic Config
+    # LLM Dynamic Config (Explicitly mapped to Env Vars)
     llm_model: Optional[str] = Field(None, validation_alias="LLM_MODEL")
     llm_key: Optional[str] = Field(None, validation_alias="LLM_KEY")
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", env_prefix="")
 
 def load_config(config_path: str = "config.yaml") -> AppConfig:
-    with open(config_path, "r") as f:
-        yaml_config = yaml.safe_load(f)
+    yaml_data = {}
+    if os.path.exists(config_path):
+        with open(config_path, "r") as f:
+            yaml_data = yaml.safe_load(f) or {}
     
-    # Load config combining YAML and .env
-    config = AppConfig(**yaml_config)
+    # Initialize config from YAML and environment variables
+    config = AppConfig(**yaml_data)
     
-    # Logic to apply LLM overrides
-    if config.llm_model:
-        config.agent.model = config.llm_model
+    # Simple, explicit overrides from Env for the crucial LLM selection
+    env_model = os.getenv("LLM_MODEL")
+    if env_model:
+        config.agent.model = env_model
+        config.llm_model = env_model
         
-    if config.llm_key:
-        # Heuristic to set the correct env var for common libraries
-        # This allows "LLM_KEY" to drive the agent's auth
-        if "gemini" in config.agent.model.lower():
-            os.environ["GOOGLE_API_KEY"] = config.llm_key
-        elif "gpt" in config.agent.model.lower():
-            os.environ["OPENAI_API_KEY"] = config.llm_key
+    env_key = os.getenv("LLM_KEY")
+    if env_key:
+        config.llm_key = env_key
             
     return config
 
 # Singleton instance
 try:
     config = load_config()
-except FileNotFoundError:
-    # Fallback for when config.yaml might not exist in current dir (e.g. tests)
-    # This logic can be improved.
-    print("Warning: config.yaml not found, using defaults where possible.")
+except Exception as e:
+    print(f"Warning: Configuration load failed: {e}. Using defaults.")
     config = AppConfig(
         agent=AgentConfig(),
         paths=PathsConfig(),
         ticketing=TicketingConfig(),
-        tools={"airflow": ToolConfig(), "databricks": ToolConfig(), "snowflake": ToolConfig()}
+        tools={}
     )
