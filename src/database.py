@@ -171,5 +171,25 @@ class Database:
         finally:
             session.close()
 
+    def lookup_incident_by_external_id(self, external_id: str) -> Optional[str]:
+        """Find an existing incident_id by its external identifier (e.g. run_id::task_id)."""
+        session = self.Session()
+        try:
+            # Fetch recent reception logs and filter in Python for portability
+            # This avoids dialect-specific JSON query issues (Postgres JSONB vs SQLite JSON vs DuckDB)
+            recent_logs = session.query(AuditLog).filter(
+                AuditLog.action_type == "API_REQUEST_RECEIVED"
+            ).order_by(AuditLog.timestamp.desc()).limit(50).all()
+            
+            for log in recent_logs:
+                if log.details and log.details.get("external_id") == external_id:
+                    return log.incident_id
+            return None
+        except Exception as e:
+            print(f"Failed to lookup external_id: {e}")
+            return None
+        finally:
+            session.close()
+
 # Singleton
 db = Database()

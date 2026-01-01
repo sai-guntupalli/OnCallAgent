@@ -33,8 +33,16 @@ async def analyze_incident(incident: IncidentRequest, background_tasks: Backgrou
     try:
         # Recover existing incident_id if present (for retries), else generate new
         internal_id = incident.metadata.get("parent_incident_id") if incident.metadata else None
+        
+        # Fallback: Lookup by external ID if metadata propagation failed (e.g. clear task instance)
+        if not internal_id:
+            internal_id = db.lookup_incident_by_external_id(incident.incident_id)
+            if internal_id:
+                print(f"Recovered incident_id {internal_id} via external ID lookup.")
+        
         if not internal_id:
             internal_id = f"INC-{str(uuid.uuid4())[:8].upper()}"
+            print(f"Generated new incident_id: {internal_id}")
         
         # Construct the user prompt from the structured request
         prompt = format_incident_report(

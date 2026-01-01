@@ -46,6 +46,28 @@ class AirflowClient:
         except Exception as e:
             return {"error": str(e)}
 
+    def clear_task_instance(self, dag_id: str, dag_run_id: str, task_id: str) -> Dict[str, Any]:
+        """Clears a task instance to trigger a retry."""
+        url = f"{self.base_url}/api/v1/dags/{dag_id}/clearTaskInstances"
+        payload = {
+            "dry_run": False,
+            "task_ids": [task_id],
+            "dag_run_id": dag_run_id,
+            "include_upstream": False,
+            "include_downstream": False,
+            "include_future": False,
+            "include_past": False,
+            "reset_dag_runs": True
+        }
+        try:
+            response = httpx.post(url, auth=self.auth, json=payload, timeout=10.0)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            if hasattr(e, 'response') and e.response:
+                 return {"error": f"HTTP error {e.response.status_code}: {e.response.text}"}
+            return {"error": str(e)}
+
 # Tool Wrapper Functions for Agent
 def get_airflow_dag_status(dag_id: str, dag_run_id: str) -> str:
     """Fetches the status of a specific Airflow DAG run. Useful to see if it's currently failing or finished."""
@@ -61,21 +83,35 @@ def get_airflow_logs(dag_id: str, dag_run_id: str, task_id: str) -> str:
 
 from ...database import db
 
-def retry_airflow_pipeline(dag_id: str, incident_id: str, conf: Optional[Dict[str, Any]] = None) -> str:
-    """Triggers a new run of the DAG to retry the pipeline. 
-    Requires an incident_id for internal tracking. Max retries: 3.
+def retry_airflow_pipeline(dag_id: str, incident_id: str, dag_run_id: Optional[str] = None, task_id: Optional[str] = None, conf: Optional[Dict[str, Any]] = None) -> str:
+    """Triggers a retry of the pipeline.
+    
+    If dag_run_id and task_id are provided, it clears the specific task instance (targeted retry).
+    Otherwise, it triggers a new run of the DAG (full retry).
+    
+    Requires incident_id for internal tracking. Max retries: 3.
     """
     # Check internal retry guardrail
-    current_retries = db.increment_retry_count(incident_id, dag_id)
+    # We use the dag_id (or task_id if specific) as the tracker component
+    tracker_component = f"{dag_id}:{task_id}" if task_id else dag_id
+    current_retries = db.increment_retry_count(incident_id, tracker_component)
     max_allowed = config.agent.max_retries
     
     if current_retries > max_allowed:
-        return f"RETRY_DENIED: You have already attempted to retry {dag_id} {max_allowed} times for incident {incident_id}. DO NOT retry again. Please create a ticket instead."
+        return f"RETRY_DENIED: You have already attempted to retry {tracker_component} {max_allowed} times for incident {incident_id}. DO NOT retry again. Please create a ticket instead."
 
     client = AirflowClient()
-    # Propagate incident_id in conf for lineage tracking
-    conf = conf or {}
-    conf["parent_incident_id"] = incident_id
     
-    res = client.trigger_dag(dag_id, conf)
-    return f"Triggered retry (Attempt {current_retries}/{max_allowed}): {res}"
+    if dag_run_id and task_id:
+        # Targeted Task Retry
+        print(f"Attempting targeted task retry for {dag_id}/{task_id} in run {dag_run_id}...")
+        res = client.clear_task_instance(dag_id, dag_run_id, task_id)
+        return f"Targeted retry successful (Attempt {current_retries}/{max_allowed}): {res}"
+    else:
+        # Full DAG Retry (Fallback)
+        print(f"Attempting full DAG retry for {dag_id} (missing run_id or task_id)...")
+        # Propagate incident_id in conf for lineage tracking
+        conf = conf or {}
+        conf["parent_incident_id"] = incident_id
+        res = client.trigger_dag(dag_id, conf)
+        return f"Full DAG retry triggered (Attempt {current_retries}/{max_allowed}): {res}"
