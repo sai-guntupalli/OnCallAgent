@@ -1,0 +1,20 @@
+agent:
+  name: "DataEngOnCall"
+  model: "gemini-2.0-flash" # Default, can be overridden to gpt-4 etc.
+  
+paths:
+  knowledge_base: "./data/knowledge_base"
+  database: "./data/audit.duckdb"
+
+ticketing:
+  system: "mock" # Options: mock, jira, servicenow
+  default_queue: "DE_ONCALL"
+
+tools:
+  airflow:
+    enabled: true
+    timeout: 30
+  databricks:
+    enabled: true
+  snowflake:
+    enabled: true
