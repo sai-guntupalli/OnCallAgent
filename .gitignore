@@ -11,9 +11,7 @@ __pycache__/
 .env
 
 # Data and Databases
-data/*.duckdb
-data/*.duckdb.wal
-data/postgres
+data/
 *.db
 
 # Logs
