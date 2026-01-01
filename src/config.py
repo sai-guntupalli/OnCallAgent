@@ -11,6 +11,8 @@ load_dotenv(override=True)
 class AgentConfig(BaseModel):
     name: str = "DataEngOnCall"
     model: str = "gemini-2.0-flash"
+    max_retries: int = 3
+    smart_log_trimming: bool = True
 
 class PathsConfig(BaseModel):
     knowledge_base: str = "./data/knowledge_base"

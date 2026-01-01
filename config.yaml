@@ -1,6 +1,8 @@
 agent:
   name: "DataEngOnCall"
   model: "gemini-2.0-flash" # Default, can be overridden to gpt-4 etc.
+  max_retries: 3
+  smart_log_trimming: true
   
 paths:
   knowledge_base: "./data/knowledge_base"

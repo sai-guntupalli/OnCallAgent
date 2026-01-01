@@ -59,8 +59,23 @@ def get_airflow_logs(dag_id: str, dag_run_id: str, task_id: str) -> str:
     # Assume try_number 1 for simplicity in this iteration
     return client.get_task_log(dag_id, dag_run_id, task_id, try_number=1)
 
-def retry_airflow_pipeline(dag_id: str, conf: Optional[Dict[str, Any]] = None) -> str:
-    """Triggers a new run of the DAG to retry the pipeline. Use this for transient errors."""
+from ...database import db
+
+def retry_airflow_pipeline(dag_id: str, incident_id: str, conf: Optional[Dict[str, Any]] = None) -> str:
+    """Triggers a new run of the DAG to retry the pipeline. 
+    Requires an incident_id for internal tracking. Max retries: 3.
+    """
+    # Check internal retry guardrail
+    current_retries = db.increment_retry_count(incident_id, dag_id)
+    max_allowed = config.agent.max_retries
+    
+    if current_retries > max_allowed:
+        return f"RETRY_DENIED: You have already attempted to retry {dag_id} {max_allowed} times for incident {incident_id}. DO NOT retry again. Please create a ticket instead."
+
     client = AirflowClient()
+    # Propagate incident_id in conf for lineage tracking
+    conf = conf or {}
+    conf["parent_incident_id"] = incident_id
+    
     res = client.trigger_dag(dag_id, conf)
-    return f"Triggered retry: {res}"
+    return f"Triggered retry (Attempt {current_retries}/{max_allowed}): {res}"

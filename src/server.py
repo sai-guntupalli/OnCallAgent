@@ -22,6 +22,8 @@ class IncidentRequest(BaseModel):
     logs: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = {}
 
+import uuid
+
 @app.post("/analyze")
 async def analyze_incident(incident: IncidentRequest, background_tasks: BackgroundTasks):
     """
@@ -29,6 +31,11 @@ async def analyze_incident(incident: IncidentRequest, background_tasks: Backgrou
     Analysis runs in background to avoid blocking the caller (Airflow).
     """
     try:
+        # Recover existing incident_id if present (for retries), else generate new
+        internal_id = incident.metadata.get("parent_incident_id") if incident.metadata else None
+        if not internal_id:
+            internal_id = f"INC-{str(uuid.uuid4())[:8].upper()}"
+        
         # Construct the user prompt from the structured request
         prompt = format_incident_report(
             source_system=incident.source_system,
@@ -39,18 +46,25 @@ async def analyze_incident(incident: IncidentRequest, background_tasks: Backgrou
             metadata=incident.metadata or {}
         )
         
-        # Log reception
-        db.log_action("API_REQUEST_RECEIVED", incident.model_dump())
+        # Log reception with correlation ID
+        db.log_action("API_REQUEST_RECEIVED", {
+            "external_id": incident.incident_id,
+            "source": incident.source_system,
+            "title": incident.title
+        }, incident_id=internal_id)
         
         # Trigger Agent (in background for async processing)
-        # In a real production app, this would push to a queue (Redis/Celery).
-        background_tasks.add_task(run_agent_task, prompt)
+        background_tasks.add_task(run_agent_task, prompt, internal_id)
         
-        return {"status": "accepted", "message": "Incident queued for analysis."}
+        return {
+            "status": "accepted", 
+            "message": "Incident queued for analysis.",
+            "incident_id": internal_id
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-async def run_agent_task(prompt: str):
+async def run_agent_task(prompt: str, incident_id: str):
     """Helper to run agent asynchronously in background task."""
-    print(f"Starting analysis for prompt: {prompt[:50]}...")
-    await run_agent(prompt)
+    print(f"Starting analysis for incident {incident_id}...")
+    await run_agent(prompt, incident_id)
