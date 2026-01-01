@@ -9,7 +9,6 @@ __pycache__/
 
 # Environment Variables
 .env
-.env.example
 
 # Data and Databases
 data/*.duckdb
