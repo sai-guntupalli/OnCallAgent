@@ -6,6 +6,13 @@ paths:
   knowledge_base: "./data/knowledge_base"
   database: "./data/audit.duckdb"
 
+database:
+  db_type: "postgresql"
+  host: "localhost"
+  port: 5432
+  name: "oncall_db"
+  user: "oncall_user"
+
 ticketing:
   system: "mock" # Options: mock, jira, servicenow
   default_queue: "DE_ONCALL"

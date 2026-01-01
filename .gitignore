@@ -13,6 +13,7 @@ __pycache__/
 # Data and Databases
 data/*.duckdb
 data/*.duckdb.wal
+data/postgres
 *.db
 
 # Logs

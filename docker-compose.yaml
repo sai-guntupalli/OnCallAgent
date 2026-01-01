@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: oncall-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-oncall_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-oncall_password}
+      POSTGRES_DB: ${DB_NAME:-oncall_db}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-oncall_user} -d ${DB_NAME:-oncall_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+networks:
+  default:
+    name: oncall-network

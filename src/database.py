@@ -1,112 +1,104 @@
-import duckdb
-import json
+from sqlalchemy import create_engine, Column, String, DateTime, JSON, Text
+from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import sessionmaker
 import uuid
-import time
-import contextlib
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 from .config import config
+
+Base = declarative_base()
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+    id = Column(String, primary_key=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+    agent_name = Column(String)
+    action_type = Column(String)
+    details = Column(JSON)
+    status = Column(String)
+
+class MockTicket(Base):
+    __tablename__ = "mock_tickets"
+    ticket_id = Column(String, primary_key=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    title = Column(String)
+    description = Column(Text)
+    status = Column(String)
+    priority = Column(String)
+    queue = Column(String)
+    resolution_guide = Column(Text)
 
 class Database:
     def __init__(self):
-        self.db_path = config.paths.database
+        self.engine = create_engine(config.database.url)
+        self.Session = sessionmaker(bind=self.engine)
         self._init_db()
 
-    @contextlib.contextmanager
-    def _get_con(self, read_only: bool = False):
-        """
-        Provides a DuckDB connection on-demand.
-        Includes a retry loop to handle lock contention from other processes.
-        """
-        con = None
-        max_retries = 10
-        retry_delay = 0.5
-        
-        for i in range(max_retries):
-            try:
-                con = duckdb.connect(self.db_path, read_only=read_only)
-                yield con
-                return
-            except duckdb.IOException as e:
-                if "Could not set lock" in str(e) and i < max_retries - 1:
-                    time.sleep(retry_delay)
-                    continue
-                raise
-            finally:
-                if con:
-                    con.close()
-
     def _init_db(self):
-        # Create directory if it doesn't exist
-        import os
-        os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
-        
-        with self._get_con() as con:
-            # Create Audit Log Table
-            con.execute("""
-                CREATE TABLE IF NOT EXISTS audit_logs (
-                    id VARCHAR,
-                    timestamp TIMESTAMP,
-                    agent_name VARCHAR,
-                    action_type VARCHAR,
-                    details JSON,
-                    status VARCHAR
-                )
-            """)
-            
-            # Create Mock Tickets Table
-            con.execute("""
-                CREATE TABLE IF NOT EXISTS mock_tickets (
-                    ticket_id VARCHAR,
-                    created_at TIMESTAMP,
-                    title VARCHAR,
-                    description VARCHAR,
-                    status VARCHAR,
-                    priority VARCHAR,
-                    queue VARCHAR,
-                    resolution_guide VARCHAR
-                )
-            """)
-            
-            # Ensure column exists if table was already created
-            try:
-                con.execute("ALTER TABLE mock_tickets ADD COLUMN resolution_guide VARCHAR")
-            except:
-                pass
+        """Create tables if they don't exist."""
+        Base.metadata.create_all(self.engine)
 
     def log_action(self, action_type: str, details: Dict[str, Any], status: str = "success"):
         """Log an agent action to the audit table."""
+        session = self.Session()
         try:
-            log_id = str(uuid.uuid4())
-            timestamp = datetime.now()
-            details_json = json.dumps(details, default=str)
-            
-            with self._get_con() as con:
-                con.execute("""
-                    INSERT INTO audit_logs VALUES (?, ?, ?, ?, ?, ?)
-                """, (log_id, timestamp, config.agent.name, action_type, details_json, status))
+            log_entry = AuditLog(
+                id=str(uuid.uuid4()),
+                agent_name=config.agent.name,
+                action_type=action_type,
+                details=details,
+                status=status
+            )
+            session.add(log_entry)
+            session.commit()
         except Exception as e:
+            session.rollback()
             print(f"Failed to write to audit log: {e}")
+        finally:
+            session.close()
 
     def create_ticket(self, title: str, description: str, priority: str = "Medium", resolution_guide: Optional[str] = None) -> str:
         """Create a ticket in the mock system."""
         ticket_id = f"TICKET-{str(uuid.uuid4())[:8].upper()}"
-        timestamp = datetime.now()
-        
-        with self._get_con() as con:
-            con.execute("""
-                INSERT INTO mock_tickets VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """, (ticket_id, timestamp, title, description, "OPEN", priority, config.ticketing.default_queue, resolution_guide))
-        
-        return ticket_id
+        session = self.Session()
+        try:
+            ticket = MockTicket(
+                ticket_id=ticket_id,
+                title=title,
+                description=description,
+                status="OPEN",
+                priority=priority,
+                queue=config.ticketing.default_queue,
+                resolution_guide=resolution_guide
+            )
+            session.add(ticket)
+            session.commit()
+            return ticket_id
+        except Exception as e:
+            session.rollback()
+            print(f"Failed to create ticket: {e}")
+            raise
+        finally:
+            session.close()
         
     def get_ticket(self, ticket_id: str) -> Optional[Dict[str, Any]]:
-        with self._get_con(read_only=True) as con:
-            result = con.execute("SELECT * FROM mock_tickets WHERE ticket_id = ?", (ticket_id,)).fetchone()
-            if result:
-                cols = [desc[0] for desc in con.description]
-                return dict(zip(cols, result))
-        return None
+        session = self.Session()
+        try:
+            ticket = session.query(MockTicket).filter_by(ticket_id=ticket_id).first()
+            if ticket:
+                return {
+                    "ticket_id": ticket.ticket_id,
+                    "created_at": ticket.created_at,
+                    "title": ticket.title,
+                    "description": ticket.description,
+                    "status": ticket.status,
+                    "priority": ticket.priority,
+                    "queue": ticket.queue,
+                    "resolution_guide": ticket.resolution_guide
+                }
+            return None
+        finally:
+            session.close()
 
 # Singleton
 db = Database()

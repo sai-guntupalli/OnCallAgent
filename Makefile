@@ -1,4 +1,4 @@
-.PHONY: install test lint clean run help
+.PHONY: install test lint clean run help db-up db-down db-logs
 
 help:
 	@echo "Available commands:"
@@ -6,6 +6,9 @@ help:
 	@echo "  make test     - Run tests with pytest"
 	@echo "  make lint     - Run linting with ruff"
 	@echo "  make run      - Run the agent CLI (interactive)"
+	@echo "  make api      - Run the FastAPI server"
+	@echo "  make db-up    - Start PostgreSQL container"
+	@echo "  make db-down  - Stop PostgreSQL container"
 	@echo "  make clean    - Remove build artifacts and cache"
 
 install:
@@ -22,6 +25,15 @@ run:
 
 api:
 	uv run uvicorn src.server:app --reload --port 8000
+
+db-up:
+	docker compose up -d
+
+db-down:
+	docker compose down
+
+db-logs:
+	docker compose logs -f
 
 clean:
 	rm -rf .venv
